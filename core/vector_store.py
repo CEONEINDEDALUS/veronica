@@ -1,0 +1,65 @@
+"""
+Thin wrapper around ChromaDB for persistent, per-knowledge-base vector storage.
+Embeddings are computed by us (core.embeddings) so we can swap backends freely -
+Chroma is used purely as a fast local vector index + metadata store.
+"""
+from __future__ import annotations
+import uuid
+from typing import List, Dict, Optional
+import chromadb
+from core.config import PERSIST_DIR
+
+
+class VectorStore:
+    def __init__(self, persist_dir: str = PERSIST_DIR):
+        self.client = chromadb.PersistentClient(path=persist_dir)
+
+    def get_collection(self, name: str):
+        return self.client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
+
+    def list_knowledge_bases(self) -> List[str]:
+        return sorted(c.name for c in self.client.list_collections())
+
+    def delete_knowledge_base(self, name: str):
+        try:
+            self.client.delete_collection(name)
+        except Exception:
+            pass
+
+    def add_chunks(self, kb_name: str, texts: List[str], embeddings: List[List[float]],
+                    metadatas: List[Dict]):
+        if not texts:
+            return
+        collection = self.get_collection(kb_name)
+        ids = [str(uuid.uuid4()) for _ in texts]
+        collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+
+    def query(self, kb_name: str, query_embedding: List[float], top_k: int) -> List[Dict]:
+        collection = self.get_collection(kb_name)
+        count = collection.count()
+        if count == 0:
+            return []
+        n = min(top_k, count)
+        result = collection.query(query_embeddings=[query_embedding], n_results=n,
+                                   include=["documents", "metadatas", "distances"])
+        out = []
+        docs = result.get("documents", [[]])[0]
+        metas = result.get("metadatas", [[]])[0]
+        dists = result.get("distances", [[]])[0]
+        for doc, meta, dist in zip(docs, metas, dists):
+            similarity = 1.0 - dist  # cosine distance -> similarity
+            out.append({"text": doc, "metadata": meta or {}, "similarity": similarity})
+        return out
+
+    def document_summary(self, kb_name: str) -> Dict[str, int]:
+        """Returns {source_filename: chunk_count} for a knowledge base."""
+        collection = self.get_collection(kb_name)
+        count = collection.count()
+        if count == 0:
+            return {}
+        data = collection.get(include=["metadatas"], limit=count)
+        summary: Dict[str, int] = {}
+        for meta in data.get("metadatas", []):
+            src = (meta or {}).get("source", "unknown")
+            summary[src] = summary.get(src, 0) + 1
+        return summary

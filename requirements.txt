@@ -1,0 +1,14 @@
+PyQt6>=6.6.0
+chromadb>=0.5.0
+requests>=2.31.0
+pypdf>=4.0.0
+python-docx>=1.1.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+tiktoken>=0.7.0
+beautifulsoup4>=4.12.0
+numpy>=1.26.0
+
+# Optional (only needed if you pick the "sentence_transformers" embedding
+# backend in Settings instead of Ollama embeddings):
+# sentence-transformers>=2.7.0
