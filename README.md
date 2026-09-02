@@ -49,7 +49,10 @@ similarity floor, etc.
 
 Chat | Documents | Settings
 :---:|:---:|:---:
-![Chat](docs/screenshot-1.png) | ![Documents](docs/screenshot-2.png) | ![Settings](docs/screenshot-3.png)
+![Chat](<img width="1193" height="810" alt="veronicachat" src="https://github.com/user-attachments/assets/845306f3-081b-492d-9031-e72dba812318" />
+) | ![Documents](<img width="1193" height="810" alt="veronicafiles" src="https://github.com/user-attachments/assets/06929b73-1a43-485c-b965-d1e424bd0b54" />
+) | ![Settings](<img width="1193" height="810" alt="veronicasettings" src="https://github.com/user-attachments/assets/bf06da0e-edeb-4951-b5a3-0d36de3c6c1c" />
+)
 
 ## Setup
 
