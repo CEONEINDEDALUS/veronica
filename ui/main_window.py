@@ -10,7 +10,7 @@ from core.rag_engine import RagEngine
 from ui.chat_widget import ChatPage
 from ui.documents_widget import DocumentsPage
 from ui.settings_widget import SettingsPage
-from ui.style import build_stylesheet
+from ui.style import build_stylesheet, sanitize_accent
 
 
 class NavButton(QPushButton):
@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         self.btn_settings.clicked.connect(lambda: self._go(2))
         self.btn_chat.setChecked(True)
 
+        config.accent_color = sanitize_accent(config.accent_color)
         self.setStyleSheet(build_stylesheet(config.accent_color))
 
     def _go(self, index: int):
@@ -105,6 +106,7 @@ class MainWindow(QMainWindow):
             self.chat_page.refresh_kb_list()
 
     def _on_settings_saved(self):
+        config.accent_color = sanitize_accent(config.accent_color)
         self.setStyleSheet(build_stylesheet(config.accent_color))
         self.chat_page.refresh_models()
         self.chat_page.refresh_kb_list()

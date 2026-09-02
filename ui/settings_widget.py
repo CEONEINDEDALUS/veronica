@@ -1,22 +1,22 @@
 from __future__ import annotations
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QCheckBox, QPushButton, QFrame, QScrollArea, QPlainTextEdit,
     QGridLayout, QMessageBox
 )
 
-from core.config import config
+from core.config import Config, config
+from core.llm_client import normalize_host
 
 
 def _section(title: str, subtitle: str = "") -> QFrame:
     frame = QFrame()
     frame.setObjectName("card")
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(18, 16, 18, 16)
-    layout.setSpacing(10)
+    layout.setContentsMargins(20, 18, 20, 18)
+    layout.setSpacing(12)
     t = QLabel(title)
-    t.setStyleSheet("font-size: 14px; font-weight: 700;")
+    t.setObjectName("cardTitle")
     layout.addWidget(t)
     if subtitle:
         s = QLabel(subtitle)
@@ -31,16 +31,17 @@ class SettingsPage(QWidget):
         super().__init__()
         self.on_saved = on_saved
         self._build_ui()
-        self._load_from_config()
+        self._load_from_config(config)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setContentsMargins(28, 24, 28, 24)
+        outer.setSpacing(14)
 
         header = QVBoxLayout()
         title = QLabel("Settings")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Tune connection, retrieval, and context behavior.")
+        subtitle = QLabel("Tune connection, retrieval, and context behavior. Changes apply after saving.")
         subtitle.setObjectName("pageSubtitle")
         header.addWidget(title)
         header.addWidget(subtitle)
@@ -50,19 +51,25 @@ class SettingsPage(QWidget):
         scroll.setWidgetResizable(True)
         inner = QWidget()
         layout = QVBoxLayout(inner)
-        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
 
         # --- Connection ---
         conn = _section("Ollama connection", "Where Veronica sends chat and embedding requests. Runs fully local.")
         g = QGridLayout()
         g.addWidget(QLabel("Ollama host:"), 0, 0)
         self.ollama_host_edit = QLineEdit()
+        self.ollama_host_edit.setPlaceholderText("http://localhost:11434")
         g.addWidget(self.ollama_host_edit, 0, 1)
         conn.layout().addLayout(g)
         layout.addWidget(conn)
 
         # --- Embeddings ---
-        emb = _section("Embeddings", "How document chunks are turned into vectors for retrieval.")
+        emb = _section(
+            "Embeddings",
+            "How document chunks are turned into vectors for retrieval. Changing the "
+            "backend or model requires re-ingesting existing knowledge bases."
+        )
         g2 = QGridLayout()
         g2.addWidget(QLabel("Embedding backend:"), 0, 0)
         self.embed_backend_combo = QComboBox()
@@ -157,7 +164,7 @@ class SettingsPage(QWidget):
         layout.addWidget(ret)
 
         # --- Generation ---
-        gen = _section("Generation", "")
+        gen = _section("Generation", "How Veronica writes her answers.")
         g5 = QGridLayout()
         g5.addWidget(QLabel("Temperature:"), 0, 0)
         self.temperature_spin = QDoubleSpinBox()
@@ -168,7 +175,7 @@ class SettingsPage(QWidget):
 
         gen.layout().addWidget(QLabel("System prompt:"))
         self.system_prompt_edit = QPlainTextEdit()
-        self.system_prompt_edit.setFixedHeight(90)
+        self.system_prompt_edit.setFixedHeight(96)
         gen.layout().addWidget(self.system_prompt_edit)
         layout.addWidget(gen)
 
@@ -177,15 +184,19 @@ class SettingsPage(QWidget):
         outer.addWidget(scroll, 1)
 
         save_row = QHBoxLayout()
+        restore_btn = QPushButton("Restore defaults")
+        restore_btn.setToolTip("Loads default values into this page; press Save settings to keep them.")
+        restore_btn.clicked.connect(self._restore_defaults)
+        save_row.addWidget(restore_btn)
         save_row.addStretch(1)
         save_btn = QPushButton("Save settings")
         save_btn.setObjectName("primaryButton")
+        save_btn.setMinimumWidth(140)
         save_btn.clicked.connect(self._save)
         save_row.addWidget(save_btn)
         outer.addLayout(save_row)
 
-    def _load_from_config(self):
-        c = config
+    def _load_from_config(self, c: Config):
         self.ollama_host_edit.setText(c.ollama_host)
 
         self.embed_backend_combo.setCurrentText(c.embedding_backend)
@@ -209,13 +220,39 @@ class SettingsPage(QWidget):
         self.temperature_spin.setValue(c.temperature)
         self.system_prompt_edit.setPlainText(c.system_prompt)
 
+    def _restore_defaults(self):
+        self._load_from_config(Config())
+
     def _save(self):
         c = config
-        c.ollama_host = self.ollama_host_edit.text().strip() or c.ollama_host
+        try:
+            c.ollama_host = normalize_host(self.ollama_host_edit.text().strip()) or c.ollama_host
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Ollama host", str(e))
+            self.ollama_host_edit.setText(c.ollama_host)
+            return
 
-        c.embedding_backend = self.embed_backend_combo.currentText()
-        c.ollama_embedding_model = self.ollama_embed_model_edit.text().strip() or c.ollama_embedding_model
-        c.st_embedding_model = self.st_embed_model_edit.text().strip() or c.st_embedding_model
+        new_backend = self.embed_backend_combo.currentText()
+        new_ollama_model = self.ollama_embed_model_edit.text().strip() or c.ollama_embedding_model
+        new_st_model = self.st_embed_model_edit.text().strip() or c.st_embedding_model
+        embedding_changed = (
+            (new_backend, new_ollama_model, new_st_model)
+            != (c.embedding_backend, c.ollama_embedding_model, c.st_embedding_model)
+        )
+
+        chunk_size = self.chunk_size_spin.value()
+        overlap = self.chunk_overlap_spin.value()
+        if overlap >= chunk_size:
+            overlap = max(0, chunk_size // 5)
+            self.chunk_overlap_spin.setValue(overlap)
+            QMessageBox.information(
+                self, "Chunk overlap adjusted",
+                f"Overlap must be smaller than chunk size; it was set to {overlap}.",
+            )
+
+        c.embedding_backend = new_backend
+        c.ollama_embedding_model = new_ollama_model
+        c.st_embedding_model = new_st_model
 
         c.auto_detect_context = self.auto_ctx_check.isChecked()
         c.manual_context_window = self.manual_ctx_spin.value()
@@ -225,8 +262,8 @@ class SettingsPage(QWidget):
         c.enable_context_compression = self.compression_check.isChecked()
         c.compression_target_ratio = self.compression_ratio_spin.value()
 
-        c.chunk_size = self.chunk_size_spin.value()
-        c.chunk_overlap = self.chunk_overlap_spin.value()
+        c.chunk_size = chunk_size
+        c.chunk_overlap = overlap
         c.top_k = self.top_k_spin.value()
         c.candidate_multiplier = self.candidate_mult_spin.value()
         c.similarity_floor = self.similarity_floor_spin.value()
@@ -235,6 +272,11 @@ class SettingsPage(QWidget):
         c.system_prompt = self.system_prompt_edit.toPlainText().strip() or c.system_prompt
 
         c.save()
-        QMessageBox.information(self, "Saved", "Settings saved.")
+        msg = "Settings saved."
+        if embedding_changed:
+            msg += ("\n\nNote: the embedding model changed. Existing knowledge bases were "
+                    "built with the previous model and must be re-ingested before queries "
+                    "can use them.")
+        QMessageBox.information(self, "Saved", msg)
         if self.on_saved:
             self.on_saved()

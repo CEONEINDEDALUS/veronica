@@ -45,6 +45,12 @@ similarity floor, etc.
 - **Persistent storage** — ChromaDB-backed, survives restarts.
 - **Polished dark UI** — PyQt6, custom theme, sidebar navigation.
 
+## Screenshots
+
+Chat | Documents | Settings
+:---:|:---:|:---:
+![Chat](docs/screenshot-1.png) | ![Documents](docs/screenshot-2.png) | ![Settings](docs/screenshot-3.png)
+
 ## Setup
 
 ```bash

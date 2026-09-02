@@ -132,7 +132,8 @@ class RagEngine:
             # Small, deterministic-ish summarization call using the same model.
             out = []
             for piece in llm_client.chat_stream(
-                model, [{"role": "user", "content": prompt}], temperature=0.2
+                model, [{"role": "user", "content": prompt}], temperature=0.2,
+                context_window=context_window,
             ):
                 out.append(piece)
             return "".join(out).strip()
@@ -172,7 +173,8 @@ class RagEngine:
         yield {"type": "meta", **{k: v for k, v in built.items() if k != "messages"}}
 
         try:
-            for piece in llm_client.chat_stream(model, built["messages"], temperature=self.config.temperature):
+            for piece in llm_client.chat_stream(model, built["messages"], temperature=self.config.temperature,
+                                                 context_window=built["context_window"]):
                 yield {"type": "token", "text": piece}
         except Exception as e:
             yield {"type": "error", "text": str(e)}

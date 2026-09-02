@@ -44,6 +44,22 @@ class ModelListWorker(QThread):
             self.failed.emit(str(e))
 
 
+class KBSummaryWorker(QThread):
+    summary_ready = pyqtSignal(str, dict)
+
+    def __init__(self, engine: RagEngine, kb_name: str):
+        super().__init__()
+        self.engine = engine
+        self.kb_name = kb_name
+
+    def run(self):
+        try:
+            summary = self.engine.store.document_summary(self.kb_name)
+            self.summary_ready.emit(self.kb_name, summary)
+        except Exception:
+            self.summary_ready.emit(self.kb_name, {})
+
+
 class QueryWorker(QThread):
     meta_ready = pyqtSignal(dict)
     token_received = pyqtSignal(str)
@@ -59,15 +75,23 @@ class QueryWorker(QThread):
         self.chat_history = chat_history
         self.model = model
         self._stop = False
+        self._gen = None
 
     def stop(self):
         self._stop = True
+        gen = self._gen
+        if gen is not None:
+            try:
+                gen.close()
+            except (ValueError, RuntimeError):
+                pass
 
     def run(self):
         try:
-            for event in self.engine.stream_answer(
+            self._gen = self.engine.stream_answer(
                 self.question, self.kb_name, self.chat_history, self.model
-            ):
+            )
+            for event in self._gen:
                 if self._stop:
                     break
                 if event["type"] == "meta":
@@ -77,6 +101,8 @@ class QueryWorker(QThread):
                 elif event["type"] == "error":
                     self.failed.emit(event["text"])
                     return
+            self.finished_ok.emit()
+        except GeneratorExit:
             self.finished_ok.emit()
         except Exception as e:
             self.failed.emit(str(e))
