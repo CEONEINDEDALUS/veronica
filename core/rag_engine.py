@@ -1,6 +1,7 @@
 """
 Orchestrates ingestion (load -> chunk -> embed -> store) and query
 (embed query -> retrieve -> budget-fit/compress -> generate).
+Supports both Ollama and local GGUF (llama.cpp) backends.
 """
 from __future__ import annotations
 from typing import List, Dict, Generator, Callable, Optional
@@ -11,7 +12,7 @@ from core.document_loader import load_file
 from core.chunker import chunk_text
 from core.embeddings import embed_texts
 from core.vector_store import VectorStore
-from core.llm_client import get_client, BaseLLMClient
+from core.llm_client import get_client, get_client_for_config, BaseLLMClient
 from core.context_manager import Budget, assemble_context
 from core.tokenizer import count_tokens
 
@@ -23,12 +24,20 @@ class RagEngine:
 
     # ---------- backend helpers ----------
     def get_llm_client(self) -> BaseLLMClient:
-        return get_client(self.config.ollama_host)
+        c = self.config
+        if c.llm_backend == "gguf":
+            return get_client(backend="gguf", gguf_model_path=c.gguf_model_path, n_ctx=c.gguf_n_ctx, n_threads=c.gguf_n_threads, n_gpu_layers=c.gguf_n_gpu_layers, embedding_path=c.gguf_embedding_model_path or c.gguf_model_path)
+        return get_client(ollama_host=c.ollama_host)
 
     def get_embedding_client(self) -> Optional[BaseLLMClient]:
-        # Embeddings via Ollama; sentence-transformers needs no client.
-        if self.config.embedding_backend == "ollama":
-            return get_client(self.config.ollama_host)
+        c = self.config
+        if c.embedding_backend == "gguf":
+            p = c.gguf_embedding_model_path or c.gguf_model_path
+            if p:
+                return get_client(backend="gguf", gguf_model_path=p, n_ctx=c.gguf_n_ctx, n_threads=c.gguf_n_threads, n_gpu_layers=c.gguf_n_gpu_layers, embedding_path=p)
+            return get_client(backend="gguf", gguf_model_path=c.gguf_model_path, n_ctx=c.gguf_n_ctx, n_threads=c.gguf_n_threads, n_gpu_layers=c.gguf_n_gpu_layers)
+        if c.embedding_backend == "ollama":
+            return get_client(ollama_host=c.ollama_host)
         return None
 
     # ---------- ingestion ----------
@@ -60,8 +69,15 @@ class RagEngine:
                     progress_cb(f"Embedding {fname} ({len(chunks)} chunks)...", i, total)
 
                 texts = [ch.text for ch in chunks]
-                # Batch embeddings to keep memory/requests reasonable
-                batch_size = 32
+                # Adaptive batch: larger batches = fewer round-trips = faster ingestion
+                # GGUF local is CPU-bound, Ollama benefits from bigger batches
+                if c.embedding_backend == "gguf":
+                    batch_size = 32 if c.gguf_n_ctx >= 16384 else 16
+                    # If using GPU offload, can go larger
+                    if c.gguf_n_gpu_layers > 0:
+                        batch_size = 64
+                else:
+                    batch_size = 64
                 all_vectors: List[List[float]] = []
                 for b in range(0, len(texts), batch_size):
                     batch = texts[b:b + batch_size]
@@ -70,11 +86,22 @@ class RagEngine:
                         ollama_client=embed_client,
                         ollama_model=c.ollama_embedding_model,
                         st_model=c.st_embedding_model,
+                        gguf_model_path=c.gguf_embedding_model_path or c.gguf_model_path,
+                        gguf_n_ctx=c.gguf_n_ctx,
+                        gguf_n_threads=c.gguf_n_threads,
+                        gguf_n_gpu=c.gguf_n_gpu_layers,
                     )
                     all_vectors.extend(vectors)
 
                 metadatas = [{"source": fname, "chunk_index": ch.index} for ch in chunks]
-                self.store.add_chunks(kb_name, texts, all_vectors, metadatas)
+                # embedding identity for mismatch detection
+                if c.embedding_backend == "gguf":
+                    emb_id = f"gguf:{os.path.basename(c.gguf_embedding_model_path or c.gguf_model_path)}"
+                elif c.embedding_backend == "ollama":
+                    emb_id = f"ollama:{c.ollama_embedding_model}"
+                else:
+                    emb_id = f"st:{c.st_embedding_model}"
+                self.store.add_chunks(kb_name, texts, all_vectors, metadatas, embedding_id=emb_id)
                 total_chunks += len(chunks)
             except Exception as e:
                 errors.append(f"{fname}: {e}")
@@ -88,29 +115,51 @@ class RagEngine:
         c = self.config
         client = self.get_embedding_client()
         vecs = embed_texts(c.embedding_backend, [query], ollama_client=client,
-                            ollama_model=c.ollama_embedding_model, st_model=c.st_embedding_model)
+                            ollama_model=c.ollama_embedding_model, st_model=c.st_embedding_model,
+                            gguf_model_path=c.gguf_embedding_model_path or c.gguf_model_path,
+                            gguf_n_ctx=c.gguf_n_ctx, gguf_n_threads=c.gguf_n_threads, gguf_n_gpu=c.gguf_n_gpu_layers)
         return vecs[0] if vecs else []
 
     def _resolve_context_window(self, llm_client: BaseLLMClient, model: str) -> int:
         c = self.config
         if not c.auto_detect_context:
+            if c.llm_backend == "gguf":
+                return c.gguf_n_ctx
             return c.manual_context_window
         try:
             return llm_client.get_context_window(model)
         except Exception:
+            if c.llm_backend == "gguf":
+                return c.gguf_n_ctx
             return c.manual_context_window
+
+    def _effective_model(self, cfg_model: str) -> str:
+        c = self.config
+        if c.llm_backend == "gguf":
+            return c.gguf_model_path or cfg_model
+        return cfg_model or c.chat_model
 
     def build_messages(self, question: str, kb_name: str, chat_history: List[Dict],
                         model: str, llm_client: BaseLLMClient) -> Dict:
         """Retrieves, budget-fits/compresses context, and returns the final
         messages list plus retrieval diagnostics."""
         c = self.config
+        model = self._effective_model(model)
 
         query_embedding = self._embed_query(question)
         candidates = []
         if query_embedding:
             n_candidates = max(c.top_k * c.candidate_multiplier, c.top_k)
-            candidates = self.store.query(kb_name, query_embedding, n_candidates)
+            if c.embedding_backend == "gguf":
+                emb_id = f"gguf:{os.path.basename(c.gguf_embedding_model_path or c.gguf_model_path)}"
+            elif c.embedding_backend == "ollama":
+                emb_id = f"ollama:{c.ollama_embedding_model}"
+            else:
+                emb_id = f"st:{c.st_embedding_model}"
+            try:
+                candidates = self.store.query(kb_name, query_embedding, n_candidates, embedding_id=emb_id)
+            except:
+                candidates = self.store.query(kb_name, query_embedding, n_candidates)
             if c.similarity_floor > 0:
                 candidates = [x for x in candidates if x["similarity"] >= c.similarity_floor]
             candidates = candidates[: max(n_candidates, c.top_k)]
@@ -169,6 +218,7 @@ class RagEngine:
         """Yields dicts: {"type": "meta", ...} once, then {"type": "token", "text": ...}
         repeatedly, then {"type": "done"}."""
         llm_client = self.get_llm_client()
+        model = self._effective_model(model)
         built = self.build_messages(question, kb_name, chat_history, model, llm_client)
         yield {"type": "meta", **{k: v for k, v in built.items() if k != "messages"}}
 

@@ -10,17 +10,17 @@ states) stay consistent with the stylesheet.
 """
 from __future__ import annotations
 
-BG_0 = "#121017"       # window background
-BG_1 = "#1A1721"       # panels / sidebar
-BG_2 = "#221E2C"       # cards / inputs
-BG_3 = "#2B2636"       # hover
-BORDER = "#38324A"
-BORDER_SOFT = "#2E2940"
-TEXT = "#F0EDF8"
-TEXT_DIM = "#9A93AC"
-ACCENT_DEFAULT = "#8B5CF6"
-DANGER = "#F87171"
-SUCCESS = "#4ADE80"
+BG_0 = "#181818"
+BG_1 = "#1E1C1A"
+BG_2 = "#2A2724"
+BG_3 = "#3A3630"
+BORDER = "#4A3F33"
+BORDER_SOFT = "#2E2A27"
+TEXT = "#DCC9A9"
+TEXT_DIM = "#9C8E7D"
+ACCENT_DEFAULT = "#B83A2D"
+DANGER = "#B83A2D"
+SUCCESS = "#4E6851"
 
 
 def _rgb(hexc: str):
@@ -91,6 +91,7 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
     accent_hover = _mix(accent, "#FFFFFF", 0.22)
     accent_pressed = _mix(accent, "#000000", 0.30)
     danger_hover = _mix(DANGER, "#000000", 0.25)
+    success_hover = _mix(SUCCESS, "#FFFFFF", 0.18)
 
     return f"""
     * {{
@@ -197,10 +198,10 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
         border-bottom-left-radius: 5px;
     }}
     QFrame#userBubble QLabel#bubbleRole {{
-        color: {_rgba("#FFFFFF", 0.72)};
+        color: {_rgba(TEXT, 0.75)};
     }}
     QFrame#assistantBubble QLabel#bubbleRole {{
-        color: {accent_hover};
+        color: {SUCCESS};
     }}
     QLabel#bubbleRole {{
         font-size: 10px;
@@ -214,7 +215,7 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
     }}
     QFrame#userBubble QLabel#bubbleText,
     QFrame#userBubble QLabel#bubbleMeta {{
-        color: #FFFFFF;
+        color: {TEXT};
     }}
     QLabel#bubbleMeta {{
         font-size: 10px;
@@ -308,11 +309,11 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
         border: 1px solid {accent};
     }}
     QCheckBox::indicator:checked {{
-        background-color: {accent};
-        border: 1px solid {accent};
+        background-color: {SUCCESS};
+        border: 1px solid {SUCCESS};
     }}
     QCheckBox::indicator:checked:hover {{
-        background-color: {accent_hover};
+        background-color: {success_hover};
     }}
 
     /* ---------- Buttons ---------- */
@@ -340,7 +341,7 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
     QPushButton#primaryButton {{
         background-color: {accent};
         border: none;
-        color: #FFFFFF;
+        color: {TEXT};
         padding: 10px 20px;
         font-weight: 700;
     }}
@@ -352,7 +353,7 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
     }}
     QPushButton#primaryButton:disabled {{
         background-color: {_mix(accent, BG_1, 0.55)};
-        color: {_rgba("#FFFFFF", 0.65)};
+        color: {_rgba(TEXT, 0.65)};
     }}
 
     QPushButton#dangerButton {{
@@ -363,11 +364,11 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
     QPushButton#dangerButton:hover {{
         background-color: {DANGER};
         border: 1px solid {DANGER};
-        color: #FFFFFF;
+        color: {TEXT};
     }}
     QPushButton#dangerButton:pressed {{
         background-color: {danger_hover};
-        color: #FFFFFF;
+        color: {TEXT};
     }}
     QPushButton#dangerButton:disabled {{
         border: 1px solid {BORDER_SOFT};
@@ -454,7 +455,7 @@ def build_stylesheet(accent: str = ACCENT_DEFAULT) -> str:
         color: {TEXT_DIM};
     }}
     QProgressBar::chunk {{
-        background-color: {accent};
+        background-color: {SUCCESS};
         border-radius: 6px;
     }}
 

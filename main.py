@@ -1,6 +1,20 @@
+import os
+
+# --- Quiet harmless Qt/Wayland noise ---
+# Wayland text-input v3 leave events are spammy on some compositors (KDE/GNOME)
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.wayland.textinput=false;qt.qpa.wayland=false")
+# Optional: force XCB if Wayland still noisy (uncomment if needed)
+# os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+# Disable llama.cpp verbose rope warnings unless debug
+os.environ.setdefault("LLAMA_LOG_LEVEL", "error")
+
 import sys
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QLoggingCategory
+
+# Extra suppression via Qt logging category (Wayland)
+QLoggingCategory.setFilterRules("qt.qpa.wayland.textinput.debug=false\nqt.qpa.wayland.debug=false")
 
 from core.config import config
 from ui.main_window import MainWindow

@@ -1,6 +1,7 @@
 PyQt6>=6.6.0
 chromadb>=0.5.0
 requests>=2.31.0
+pymupdf>=1.24.0
 pypdf>=4.0.0
 python-docx>=1.1.0
 pandas>=2.0.0
@@ -8,7 +9,12 @@ openpyxl>=3.1.0
 tiktoken>=0.7.0
 beautifulsoup4>=4.12.0
 numpy>=1.26.0
+ebooklib>=0.18
+rapidfuzz>=3.9.0
+pydantic>=2.0.0
 
-# Optional (only needed if you pick the "sentence_transformers" embedding
-# backend in Settings instead of Ollama embeddings):
+# Optional - sentence_transformers embedding backend (CPU):
 # sentence-transformers>=2.7.0
+
+# Optional - raw GGUF local models via llama.cpp (CPU, low-VRAM):
+# llama-cpp-python>=0.2.90
